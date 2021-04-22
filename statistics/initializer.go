@@ -44,7 +44,15 @@ func CreateStatsHandler(cfg *config.Config, pathGenesisFiles string) (StatsHandl
 		return nil, err
 	}
 
-	stakeInfoHandler, err := process.NewStakeInfoProcessor(esClient, rClient, pubKeyConverter, pathGenesisFiles, genesisTime)
+	stakeInfoHandler, err := process.NewStakeInfoProcessor(
+		esClient,
+		rClient,
+		pubKeyConverter,
+		pathGenesisFiles,
+		genesisTime,
+		cfg.GeneralConfig.DelegationLegacyContractAddress,
+		cfg.GeneralConfig.StakingContractAddress,
+	)
 	if err != nil {
 		return nil, err
 	}

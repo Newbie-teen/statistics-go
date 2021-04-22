@@ -15,25 +15,21 @@ import (
 )
 
 type stakeInfoProcessor struct {
-	elasticHandler  ElasticHandler
-	restClient      RestClientHandler
-	pubKeyConverter core.PubkeyConverter
-
-	balances map[string]*big.Int
-
-	accumulatedRewardDelegation *big.Int
-	claimedRewards              *big.Int
-	accumulatedUnJail           *big.Int
-
-	delegationLegacyUsers map[string]*big.Int
-	stakingUsers          map[string]*big.Int
-
-	epoch uint32
-	stats map[uint32]*data.StakeInfoEpoch
-
+	elasticHandler                 ElasticHandler
+	restClient                     RestClientHandler
+	pubKeyConverter                core.PubkeyConverter
+	accumulatedRewardDelegation    *big.Int
+	claimedRewards                 *big.Int
+	accumulatedUnJail              *big.Int
+	stats                          map[uint32]*data.StakeInfoEpoch
+	delegationLegacyUsers          map[string]*big.Int
+	stakingUsers                   map[string]*big.Int
+	balances                       map[string]*big.Int
 	delegationManagerContractAddrs []string
-
-	genesisTime int
+	delegationContractAddress      string
+	stakingContractAddress         string
+	epoch                          uint32
+	genesisTime                    int
 }
 
 func NewStakeInfoProcessor(
@@ -42,6 +38,8 @@ func NewStakeInfoProcessor(
 	pubKeyConverter core.PubkeyConverter,
 	pathGenesisFiles string,
 	genesisTime int,
+	delegationContractAddress string,
+	stakingContractAddress string,
 ) (*stakeInfoProcessor, error) {
 	genesisAccts, err := genesis.ReadGenesisDelegationLegacyUsers(pathGenesisFiles)
 	if err != nil {
@@ -63,6 +61,8 @@ func NewStakeInfoProcessor(
 		delegationLegacyUsers:          genesisAccts,
 		stakingUsers:                   stakingAccts,
 		delegationManagerContractAddrs: []string{},
+		delegationContractAddress:      delegationContractAddress,
+		stakingContractAddress:         stakingContractAddress,
 	}, nil
 }
 
@@ -90,12 +90,12 @@ func (sip *stakeInfoProcessor) ProcessEpochs(endEpoch uint32) ([]byte, error) {
 }
 
 func (sip *stakeInfoProcessor) processEpoch(start, stop int) error {
-	delegationBalance, err := sip.getAddressBalance(start, stop, delegationContractAddress)
+	delegationBalance, err := sip.getAddressBalance(start, stop, sip.delegationContractAddress)
 	if err != nil {
 		return err
 	}
 
-	stakingContractBalance, err := sip.getAddressBalance(start, stop, stakingContractAddress)
+	stakingContractBalance, err := sip.getAddressBalance(start, stop, sip.stakingContractAddress)
 	if err != nil {
 		return err
 	}
@@ -173,7 +173,7 @@ func (sip *stakeInfoProcessor) getRewardTxValueDelegationLegacy(start, stop int)
 		return big.NewInt(0), nil
 	}
 
-	queryDelegation := rewardTxQuery(start, stop, delegationContractAddress)
+	queryDelegation := rewardTxQuery(start, stop, sip.delegationContractAddress)
 	response, err := sip.elasticHandler.DoSearchRequest(queryDelegation, transactionsIndex)
 	if err != nil {
 		return nil, err
@@ -209,7 +209,7 @@ func (sip *stakeInfoProcessor) processAccountsHistoryResponse(responseBytes []by
 }
 
 func (sip *stakeInfoProcessor) parseTransactionsDelegationLegacyContract(start, stop int) error {
-	getTxs := getTransactionsToAddr(start, stop, delegationContractAddress)
+	getTxs := getTransactionsToAddr(start, stop, sip.delegationContractAddress)
 
 	err := sip.elasticHandler.DoScrollRequestAllDocuments(getTxs, transactionsIndex, func(responseBytes []byte) error {
 		response := &data.ScrollTransactionsSCRS{}
@@ -297,7 +297,7 @@ func (sip *stakeInfoProcessor) processUnStakeLegacy(tx *data.TxWithSCRS) {
 }
 
 func (sip *stakeInfoProcessor) parseTransactionStakingContract(start, stop int) error {
-	getTxs := getTransactionsToAddr(start, stop, stakingContractAddress)
+	getTxs := getTransactionsToAddr(start, stop, sip.stakingContractAddress)
 
 	err := sip.elasticHandler.DoScrollRequestAllDocuments(getTxs, transactionsIndex, func(responseBytes []byte) error {
 		response := &data.ScrollTransactionsSCRS{}
@@ -407,7 +407,7 @@ func (sip *stakeInfoProcessor) processDelegationManagerWithdraw(tx *data.TxWithS
 }
 func (sip *stakeInfoProcessor) processDelegationManagerRedelegate(tx *data.TxWithSCRS) {
 	for _, scr := range tx.SCRS {
-		if scr.Nonce == 0 && scr.Value != "" && scr.Receiver == stakingContractAddress {
+		if scr.Nonce == 0 && scr.Value != "" && scr.Receiver == sip.stakingContractAddress {
 			_, ok := sip.stakingUsers[tx.Sender]
 			if !ok {
 				log.Printf("something is wrong get staking user from map Redelegate ---> this should never happend \n")
