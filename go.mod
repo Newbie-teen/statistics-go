@@ -8,4 +8,5 @@ require (
 	github.com/ElrondNetwork/elrond-go-logger v1.0.4
 	github.com/elastic/go-elasticsearch/v7 v7.12.0
 	github.com/tidwall/gjson v1.7.4
+	github.com/urfave/cli v1.22.5
 )

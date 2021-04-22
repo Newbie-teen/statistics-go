@@ -17,8 +17,8 @@ func TestStakeInfoProcessor_ProcessEpochs(t *testing.T) {
 	restClientt, _ := restClient.NewRestClient("https://gateway.elrond.com")
 	pubKeyConverter, _ := factory.NewPubkeyConverter(config.PubkeyConfig{Type: "bech32", Length: 32})
 
-	ap, _ := NewStakeInfoProcessor(elsaticC, restClientt, pubKeyConverter)
+	ap, _ := NewStakeInfoProcessor(elsaticC, restClientt, pubKeyConverter, "../genesis", 1596117600)
 
-	ap.ProcessEpochs()
+	ap.ProcessEpochs(50)
 	//ap.getAllDelegationManagerContracts()
 }

@@ -16,7 +16,7 @@ func TestAp(t *testing.T) {
 		Addresses: []string{"http://localhost:9200"},
 	})
 
-	ap, _ := NewAccountsProcessor(elsaticC, pubKeyConverter)
+	ap, _ := NewAccountsProcessor(elsaticC, pubKeyConverter, 1596117600)
 
-	ap.ProcessAllAccounts()
+	ap.ProcessAllAccounts(50)
 }

@@ -2,7 +2,6 @@ package process
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"log"
 	"math/big"
 	"time"
@@ -10,10 +9,6 @@ import (
 	dataIndexer "github.com/ElrondNetwork/elastic-indexer-go/data"
 	"github.com/ElrondNetwork/elrond-go/core"
 	"github.com/ElrondNetwork/statistics-go/data"
-)
-
-const (
-	epochAccounts = 1
 )
 
 var (
@@ -37,28 +32,31 @@ type accountsProcessor struct {
 	epoch           uint32
 	totalContract   int
 	pubKeyConverter core.PubkeyConverter
+	genesisTime     int
 }
 
 func NewAccountsProcessor(
 	elasticHandler ElasticHandler,
 	pubKeyConverter core.PubkeyConverter,
+	genesisTime int,
 ) (*accountsProcessor, error) {
 	return &accountsProcessor{
 		elasticHandler:  elasticHandler,
 		pubKeyConverter: pubKeyConverter,
 		stats:           map[uint32]*data.StatisticsAddressesBalanceEpoch{},
 		accounts:        map[string]*accountInfo{},
+		genesisTime:     genesisTime,
 	}, nil
 }
 
-func (ap *accountsProcessor) ProcessAllAccounts() {
-	for epoch := 0; epoch < epochAccounts; epoch++ {
+func (ap *accountsProcessor) ProcessAllAccounts(endEpoch uint32) ([]byte, error) {
+	for epoch := uint32(0); epoch < endEpoch; epoch++ {
 		log.Printf("process accounts history epoch %d \n", epoch)
 
-		ap.epoch = uint32(epoch)
+		ap.epoch = epoch
 		ap.stats[ap.epoch] = &data.StatisticsAddressesBalanceEpoch{}
 
-		err := ap.processAccountsEpoch(genesisTime+epoch*secondsInADay, genesisTime+(epoch+1)*secondsInADay)
+		err := ap.processAccountsEpoch(ap.genesisTime+int(epoch)*secondsInADay, ap.genesisTime+int(epoch+1)*secondsInADay)
 		if err != nil {
 			log.Printf("cannot proccess accouts for epoch %d, error %s", epoch, err.Error())
 			continue
@@ -69,15 +67,15 @@ func (ap *accountsProcessor) ProcessAllAccounts() {
 		ap.stats[ap.epoch].TotalContractAddresses = ap.totalContract
 	}
 
-	sliceStats := make([]*data.StatisticsAddressesBalanceEpoch, epochAccounts)
-	for idx := uint32(0); idx < epochAccounts; idx++ {
+	sliceStats := make([]*data.StatisticsAddressesBalanceEpoch, endEpoch)
+	for idx := uint32(0); idx < endEpoch; idx++ {
 		ap.stats[idx].Epoch = idx
 		sliceStats[idx] = ap.stats[idx]
 	}
 
 	bytes, _ := json.MarshalIndent(sliceStats, "", " ")
 
-	_ = ioutil.WriteFile("../reports/statsAccountsV4.json", bytes, 0644)
+	return bytes, nil
 }
 
 func (ap *accountsProcessor) processAccountsEpoch(start, stop int) error {

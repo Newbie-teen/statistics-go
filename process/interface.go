@@ -12,3 +12,15 @@ type RestClientHandler interface {
 	CallGetRestEndPoint(path string, value interface{}) error
 	CallPostRestEndPoint(path string, data interface{}, response interface{}) error
 }
+
+type AccountsHandler interface {
+	ProcessAllAccounts(endEpoch uint32) ([]byte, error)
+}
+
+type TransactionsHandler interface {
+	ProcessAllTxs(endEpoch uint32) ([]byte, error)
+}
+
+type StakeInfoHandler interface {
+	ProcessEpochs(endEpoch uint32) ([]byte, error)
+}

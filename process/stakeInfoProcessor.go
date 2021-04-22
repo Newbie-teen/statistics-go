@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"math/big"
 	"strings"
@@ -13,10 +12,6 @@ import (
 	"github.com/ElrondNetwork/elrond-go/core"
 	"github.com/ElrondNetwork/statistics-go/data"
 	"github.com/ElrondNetwork/statistics-go/genesis"
-)
-
-const (
-	epochStake = 265
 )
 
 type stakeInfoProcessor struct {
@@ -37,14 +32,18 @@ type stakeInfoProcessor struct {
 	stats map[uint32]*data.StakeInfoEpoch
 
 	delegationManagerContractAddrs []string
+
+	genesisTime int
 }
 
 func NewStakeInfoProcessor(
 	handler ElasticHandler,
 	restClient RestClientHandler,
 	pubKeyConverter core.PubkeyConverter,
+	pathGenesisFiles string,
+	genesisTime int,
 ) (*stakeInfoProcessor, error) {
-	genesisAccts, err := genesis.ReadGenesisDelegationLegacyUsers("../genesis")
+	genesisAccts, err := genesis.ReadGenesisDelegationLegacyUsers(pathGenesisFiles)
 	if err != nil {
 		return nil, err
 	}
@@ -55,6 +54,7 @@ func NewStakeInfoProcessor(
 		elasticHandler:                 handler,
 		restClient:                     restClient,
 		pubKeyConverter:                pubKeyConverter,
+		genesisTime:                    genesisTime,
 		balances:                       map[string]*big.Int{},
 		accumulatedRewardDelegation:    big.NewInt(0),
 		stats:                          map[uint32]*data.StakeInfoEpoch{},
@@ -66,27 +66,27 @@ func NewStakeInfoProcessor(
 	}, nil
 }
 
-func (sip *stakeInfoProcessor) ProcessEpochs() {
-	for epoch := 0; epoch < epochStake; epoch++ {
-		sip.epoch = uint32(epoch)
+func (sip *stakeInfoProcessor) ProcessEpochs(endEpoch uint32) ([]byte, error) {
+	for epoch := uint32(0); epoch < endEpoch; epoch++ {
+		sip.epoch = epoch
 		sip.stats[sip.epoch] = &data.StakeInfoEpoch{}
 
 		log.Printf("total staking epoch %d \n", epoch)
 
-		err := sip.processEpoch(genesisTime+epoch*secondsInADay, genesisTime+(epoch+1)*secondsInADay)
+		err := sip.processEpoch(sip.genesisTime+int(epoch)*secondsInADay, sip.genesisTime+int(epoch+1)*secondsInADay)
 		if err != nil {
 			log.Printf("cannot proccess stake info for epoch %d, error %s", epoch, err.Error())
 		}
 	}
 
-	sliceStats := make([]*data.StakeInfoEpoch, epochStake)
-	for idx := uint32(0); idx < epochStake; idx++ {
+	sliceStats := make([]*data.StakeInfoEpoch, endEpoch)
+	for idx := uint32(0); idx < endEpoch; idx++ {
 		sip.stats[idx].Epoch = idx
 		sliceStats[idx] = sip.stats[idx]
 	}
 
 	bytes, _ := json.MarshalIndent(sliceStats, "", " ")
-	_ = ioutil.WriteFile("../reports/stakeInfoV3.json", bytes, 0644)
+	return bytes, nil
 }
 
 func (sip *stakeInfoProcessor) processEpoch(start, stop int) error {
@@ -169,7 +169,7 @@ func (sip *stakeInfoProcessor) getAddressBalance(start, stop int, addr string) (
 }
 
 func (sip *stakeInfoProcessor) getRewardTxValueDelegationLegacy(start, stop int) (*big.Int, error) {
-	if start == genesisTime {
+	if start == sip.genesisTime {
 		return big.NewInt(0), nil
 	}
 

@@ -3,28 +3,24 @@ package process
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"strings"
 
 	dataIndexer "github.com/ElrondNetwork/elastic-indexer-go/data"
-	"github.com/ElrondNetwork/elrond-go/config"
 	"github.com/ElrondNetwork/elrond-go/core"
-	"github.com/ElrondNetwork/elrond-go/data/state/factory"
 	dataTx "github.com/ElrondNetwork/elrond-go/data/transaction"
 	"github.com/ElrondNetwork/statistics-go/data"
 	"github.com/ElrondNetwork/statistics-go/genesis"
 )
 
 const (
-	genesisTime   = 1596117600
-	numEpochs     = 260
 	secondsInADay = 24 * 3600
 )
 
 type transactionsProc struct {
 	pubKeyConverter core.PubkeyConverter
 	elasticHandler  ElasticHandler
+	genesisTime     int
 	addresses       map[string]struct{}
 	stats           map[uint32]*data.StatisticsEpoch
 	epoch           uint32
@@ -33,12 +29,13 @@ type transactionsProc struct {
 	dailyActiveContracts map[string]int
 }
 
-func NewTransactionsProcessor(elasticHandler ElasticHandler, pathToGenesisFiles string) (*transactionsProc, error) {
+func NewTransactionsProcessor(
+	elasticHandler ElasticHandler,
+	pubKeyConverter core.PubkeyConverter,
+	pathToGenesisFiles string,
+	genesisTime int,
+) (*transactionsProc, error) {
 	addresses, err := genesis.ReadGenesisAddresses(pathToGenesisFiles)
-	if err != nil {
-		return nil, err
-	}
-	pubKeyConverter, err := factory.NewPubkeyConverter(config.PubkeyConfig{Type: "bech32", Length: 32})
 	if err != nil {
 		return nil, err
 	}
@@ -51,30 +48,31 @@ func NewTransactionsProcessor(elasticHandler ElasticHandler, pathToGenesisFiles 
 		epoch:                0,
 		dailyActiveContracts: make(map[string]int),
 		dailyActiveAccounts:  make(map[string]int),
+		genesisTime:          genesisTime,
 	}, nil
 }
 
-func (tp *transactionsProc) ProcessAllTxs() {
-	for epoch := uint32(0); epoch < numEpochs; epoch++ {
+func (tp *transactionsProc) ProcessAllTxs(endEpoch uint32) ([]byte, error) {
+	for epoch := uint32(0); epoch < endEpoch; epoch++ {
 		log.Printf("process transactions epoch %d \n", epoch)
 		tp.epoch = epoch
 		tp.stats[tp.epoch] = &data.StatisticsEpoch{}
 
-		err := tp.processTransactionsEpoch(int(genesisTime+epoch*secondsInADay), int(genesisTime+(epoch+1)*secondsInADay))
+		err := tp.processTransactionsEpoch(tp.genesisTime+int(epoch)*secondsInADay, tp.genesisTime+int(epoch+1)*secondsInADay)
 		if err != nil {
 			log.Printf("process transaction epoch %d, error: %s", epoch, err.Error())
 		}
 	}
 
-	sliceStats := make([]*data.StatisticsEpoch, numEpochs)
-	for idx := uint32(0); idx < numEpochs; idx++ {
+	sliceStats := make([]*data.StatisticsEpoch, endEpoch)
+	for idx := uint32(0); idx < endEpoch; idx++ {
 		tp.stats[idx].Epoch = idx
 		sliceStats[idx] = tp.stats[idx]
 	}
 
 	bytes, _ := json.MarshalIndent(sliceStats, "", " ")
 
-	_ = ioutil.WriteFile("statsV3.json", bytes, 0644)
+	return bytes, nil
 }
 
 func (tp *transactionsProc) processTransactionsEpoch(startTime, endTime int) error {
