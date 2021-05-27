@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"net/http"
 	"time"
 
@@ -16,7 +15,8 @@ import (
 )
 
 type elasticClient struct {
-	client *elasticsearch.Client
+	client  *elasticsearch.Client
+	counter uint64
 }
 
 func NewElasticClient(cfg elasticsearch.Config) (*elasticClient, error) {
@@ -26,7 +26,8 @@ func NewElasticClient(cfg elasticsearch.Config) (*elasticClient, error) {
 	}
 
 	return &elasticClient{
-		client: client,
+		client:  client,
+		counter: 0,
 	}, nil
 }
 
@@ -35,12 +36,10 @@ func (ec *elasticClient) DoScrollRequestAllDocuments(
 	index string,
 	handlerFunc func(responseBytes []byte) error,
 ) error {
-
-	// use a random interval in order to avoid AWS GET request cashing
-	randomNum := rand.Intn(50000)
+	ec.counter++
 	res, err := ec.client.Search(
 		ec.client.Search.WithSize(9000),
-		ec.client.Search.WithScroll(10*time.Minute+time.Duration(randomNum)*time.Millisecond),
+		ec.client.Search.WithScroll(5*time.Minute+time.Duration(ec.counter)*time.Millisecond),
 		ec.client.Search.WithContext(context.Background()),
 		ec.client.Search.WithIndex(index),
 		ec.client.Search.WithBody(query),
@@ -96,10 +95,10 @@ func (ec *elasticClient) iterateScroll(
 }
 
 func (ec *elasticClient) getScrollResponse(scrollID string) ([]byte, error) {
-	randomNum := rand.Intn(10000)
+	ec.counter++
 	res, err := ec.client.Scroll(
 		ec.client.Scroll.WithScrollID(scrollID),
-		ec.client.Scroll.WithScroll(2*time.Minute+time.Duration(randomNum)*time.Millisecond),
+		ec.client.Scroll.WithScroll(5*time.Minute+time.Duration(ec.counter)*time.Millisecond),
 	)
 	if err != nil {
 		return nil, err
@@ -146,8 +145,8 @@ func closeBody(res *esapi.Response) {
 
 // DoSearchRequest wil do a search request to elaticsearch server
 func (ec *elasticClient) DoSearchRequest(query *bytes.Buffer, index string) ([]byte, error) {
-	randomNum := rand.Intn(10000)
-	timeout := 5*time.Minute + time.Duration(randomNum)*time.Millisecond
+	ec.counter++
+	timeout := 5*time.Minute + time.Duration(ec.counter)*time.Millisecond
 	res, err := ec.client.Search(
 		ec.client.Search.WithBody(query),
 		ec.client.Search.WithIndex(index),

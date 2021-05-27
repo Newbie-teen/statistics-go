@@ -14,6 +14,10 @@ import (
 	"github.com/ElrondNetwork/statistics-go/genesis"
 )
 
+const (
+	delegationManager = "erd1qqqqqqqqqqqqqqqpqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqylllslmq6y6"
+)
+
 type stakeInfoProcessor struct {
 	elasticHandler                 ElasticHandler
 	restClient                     RestClientHandler
@@ -30,6 +34,8 @@ type stakeInfoProcessor struct {
 	stakingContractAddress         string
 	epoch                          uint32
 	genesisTime                    int
+
+	delegatorDelegationManager map[string]*big.Int
 }
 
 func NewStakeInfoProcessor(
@@ -63,6 +69,7 @@ func NewStakeInfoProcessor(
 		delegationManagerContractAddrs: []string{},
 		delegationContractAddress:      delegationContractAddress,
 		stakingContractAddress:         stakingContractAddress,
+		delegatorDelegationManager:     map[string]*big.Int{},
 	}, nil
 }
 
@@ -128,15 +135,31 @@ func (sip *stakeInfoProcessor) processEpoch(start, stop int) error {
 	sip.stats[sip.epoch].StakingUsers = len(sip.stakingUsers)
 
 	uniquesUser := make(map[string]struct{})
+	// totalStakeDelegationLegacy := big.NewInt(0)
 	for key := range sip.delegationLegacyUsers {
 		uniquesUser[key] = struct{}{}
+		// totalStakeDelegationLegacy.Add(totalStakeDelegationLegacy, value)
 	}
+	// sip.stats[sip.epoch].TotalDelegatedLegacy = totalStakeDelegationLegacy.String()
+
+	activeLegacyDelegation, _ := big.NewInt(0).SetString("3650000000000000000000000", 10)
+	sip.stats[sip.epoch].TotalDelegatedLegacy = big.NewInt(0).Add(activeLegacyDelegation, delegationBalanceNoRewards).String()
+
 	for key := range sip.stakingUsers {
 		uniquesUser[key] = struct{}{}
 	}
 
 	sip.stats[sip.epoch].TotalUniqueUsers = len(uniquesUser)
 
+	sip.stats[sip.epoch].DelegationUsers = len(sip.delegatorDelegationManager)
+	delegationStake := big.NewInt(0)
+	for _, value := range sip.delegatorDelegationManager {
+		delegationStake.Add(delegationStake, value)
+	}
+
+	sip.stats[sip.epoch].Delegation = delegationStake.String()
+
+	DumpBalances(sip.delegationLegacyUsers, sip.stakingUsers, "../reportsV2/balances", sip.epoch)
 	return nil
 }
 
@@ -219,25 +242,33 @@ func (sip *stakeInfoProcessor) parseTransactionsDelegationLegacyContract(start, 
 		}
 
 		for _, obj := range response.Hits.Hits {
-			if obj.Tx.Status != "success" {
+			if obj.Tx.Status != "success" || obj.Tx.Sender == "4294967295" {
 				continue
 			}
 
+			obj.Tx.Hash = obj.ID
+
 			if string(obj.Tx.Data) == "claimRewards" {
 				sip.processClaimRewardsTx(&obj.Tx)
+				continue
 			}
 
 			if string(obj.Tx.Data) == "stake" {
 				sip.processStakeLegacy(&obj.Tx)
+				continue
 			}
 
-			if strings.HasPrefix(string(obj.Tx.Data), "unStake") {
+			if strings.HasPrefix(string(obj.Tx.Data), "unStake@") {
 				sip.processUnStakeLegacy(&obj.Tx)
+				continue
 			}
 
 			if string(obj.Tx.Data) == "unBond" {
 				sip.processUnBondLegacy(&obj.Tx)
+				continue
 			}
+
+			continue
 		}
 
 		return nil
@@ -255,6 +286,16 @@ func (sip *stakeInfoProcessor) processUnBondLegacy(tx *data.TxWithSCRS) {
 		return
 	}
 
+	// for _, scr := range tx.SCRS {
+	// 	if scr.Nonce == 0 && scr.Value != "" && string(scr.Data) == "delegation stake unbond" && scr.Receiver == tx.Sender {
+	// 		sip.delegationLegacyUsers[tx.Sender].Sub(sip.delegationLegacyUsers[tx.Sender], stringToBigInt(scr.Value))
+	// 		if sip.delegationLegacyUsers[tx.Sender].Cmp(big.NewInt(0)) == 0 {
+	// 			delete(sip.delegationLegacyUsers, tx.Sender)
+	// 		}
+	// 		return
+	// 	}
+	// }
+
 	if sip.delegationLegacyUsers[tx.Sender].Cmp(big.NewInt(0)) == 0 {
 		delete(sip.delegationLegacyUsers, tx.Sender)
 	}
@@ -264,6 +305,7 @@ func (sip *stakeInfoProcessor) processClaimRewardsTx(tx *data.TxWithSCRS) {
 	for _, scr := range tx.SCRS {
 		if scr.Nonce == 0 && scr.Value != "" && string(scr.Data) == "delegation rewards claim" {
 			sip.claimedRewards.Add(sip.claimedRewards, stringToBigInt(scr.Value))
+			return
 		}
 	}
 }
@@ -281,7 +323,8 @@ func (sip *stakeInfoProcessor) processStakeLegacy(tx *data.TxWithSCRS) {
 func (sip *stakeInfoProcessor) processUnStakeLegacy(tx *data.TxWithSCRS) {
 	_, ok := sip.delegationLegacyUsers[tx.Sender]
 	if !ok {
-		log.Printf("something is wrong get ---> this should never happend \n")
+		log.Printf("transaction hash %s", tx.Hash)
+		log.Printf("something is wrong get UnStake ---> this should never happend \n")
 		return
 	}
 
@@ -292,8 +335,16 @@ func (sip *stakeInfoProcessor) processUnStakeLegacy(tx *data.TxWithSCRS) {
 	}
 
 	decodedBytes, _ := hex.DecodeString(spiltData[1])
+	bigValue := big.NewInt(0).SetBytes(decodedBytes)
 
-	sip.delegationLegacyUsers[tx.Sender].Sub(sip.delegationLegacyUsers[tx.Sender], big.NewInt(0).SetBytes(decodedBytes))
+	sip.delegationLegacyUsers[tx.Sender].Sub(sip.delegationLegacyUsers[tx.Sender], bigValue)
+
+	if sip.delegationLegacyUsers[tx.Sender].Cmp(big.NewInt(0)) < 0 {
+		log.Printf("something is wrong get negative value ---> this should never happend \n")
+
+		// sip.delegationLegacyUsers[tx.Sender] = big.NewInt(0)
+		delete(sip.delegationLegacyUsers, tx.Sender)
+	}
 }
 
 func (sip *stakeInfoProcessor) parseTransactionStakingContract(start, stop int) error {
@@ -307,19 +358,24 @@ func (sip *stakeInfoProcessor) parseTransactionStakingContract(start, stop int) 
 		}
 
 		for _, obj := range response.Hits.Hits {
-			if obj.Tx.Status != "success" {
+			if obj.Tx.Status != "success" ||
+				strings.HasPrefix(string(obj.Tx.Data), "changeRewardAddress") ||
+				strings.HasPrefix(string(obj.Tx.Data), "unStake") {
 				continue
 			}
 
-			if string(obj.Tx.Data) == "unJail" {
+			if strings.HasPrefix(string(obj.Tx.Data), "unJail") {
 				sip.accumulatedUnJail.Add(sip.accumulatedUnJail, stringToBigInt(obj.Tx.Value))
+				continue
 			}
 
 			if strings.HasPrefix(string(obj.Tx.Data), "stake") || string(obj.Tx.Data) == "stake" {
 				sip.processStakeTx(&obj.Tx)
+				continue
 			}
 			if strings.HasPrefix(string(obj.Tx.Data), "unBond") || string(obj.Tx.Data) == "claim" || string(obj.Tx.Data) == "unBondTokens" {
 				sip.processUnBond(&obj.Tx)
+				continue
 			}
 
 		}
@@ -334,11 +390,14 @@ func (sip *stakeInfoProcessor) parseTransactionStakingContract(start, stop int) 
 		return nil
 	}
 
-	if sip.epoch == 239 {
-		sip.delegationManagerContractAddrs, err = sip.getAllDelegationManagerContracts()
-		if err != nil {
-			return err
-		}
+	sip.delegationManagerContractAddrs, err = sip.getAllDelegationManagerContracts()
+	if err != nil {
+		return err
+	}
+
+	err = sip.processTxsToDelegationManagerCreator(start, stop)
+	if err != nil {
+		return err
 	}
 
 	for _, contractAddr := range sip.delegationManagerContractAddrs {
@@ -356,15 +415,22 @@ func (sip *stakeInfoProcessor) parseTransactionStakingContract(start, stop int) 
 					continue
 				}
 
+				obj.Tx.Hash = obj.ID
+
 				if string(obj.Tx.Data) == "delegate" {
 					sip.processDelegationManagerDelegate(&obj.Tx)
+					continue
 				}
 				if string(obj.Tx.Data) == "withdraw" {
 					sip.processDelegationManagerWithdraw(&obj.Tx)
+					continue
 				}
 				if string(obj.Tx.Data) == "reDelegateRewards" {
-					sip.processDelegationManagerRedelegate(&obj.Tx)
+					sip.processDelegationManagerReDelegate(&obj.Tx)
+					continue
 				}
+
+				continue
 
 			}
 
@@ -382,10 +448,19 @@ func (sip *stakeInfoProcessor) processDelegationManagerDelegate(tx *data.TxWithS
 	_, ok := sip.stakingUsers[tx.Sender]
 	if !ok {
 		sip.stakingUsers[tx.Sender] = stringToBigInt(tx.Value)
-		return
+		goto STEP2
 	}
 
 	sip.stakingUsers[tx.Sender].Add(sip.stakingUsers[tx.Sender], stringToBigInt(tx.Value))
+
+STEP2:
+	_, ok = sip.delegatorDelegationManager[tx.Sender]
+	if !ok {
+		sip.delegatorDelegationManager[tx.Sender] = stringToBigInt(tx.Value)
+		return
+	}
+
+	sip.delegatorDelegationManager[tx.Sender].Add(sip.delegatorDelegationManager[tx.Sender], stringToBigInt(tx.Value))
 }
 
 func (sip *stakeInfoProcessor) processDelegationManagerWithdraw(tx *data.TxWithSCRS) {
@@ -394,27 +469,49 @@ func (sip *stakeInfoProcessor) processDelegationManagerWithdraw(tx *data.TxWithS
 			_, ok := sip.stakingUsers[tx.Sender]
 			if !ok {
 				log.Printf("something is wrong get staking user from map Withdraw ---> this should never happend \n")
-				return
+				goto STEP2
 			}
 
 			sip.stakingUsers[tx.Sender].Sub(sip.stakingUsers[tx.Sender], stringToBigInt(scr.Value))
 			if sip.stakingUsers[tx.Sender].Cmp(big.NewInt(0)) == 0 {
 				delete(sip.stakingUsers, tx.Sender)
 			}
+
+		STEP2:
+			_, ok = sip.delegatorDelegationManager[tx.Sender]
+			if !ok {
+				log.Printf("something is wrong get staking user from map Withdraw delegatorDelegationManager ---> this should never happend \n")
+				return
+			}
+			sip.delegatorDelegationManager[tx.Sender].Sub(sip.delegatorDelegationManager[tx.Sender], stringToBigInt(scr.Value))
+			if sip.delegatorDelegationManager[tx.Sender].Cmp(big.NewInt(0)) == 0 {
+				delete(sip.delegatorDelegationManager, tx.Sender)
+			}
 			return
 		}
 	}
 }
-func (sip *stakeInfoProcessor) processDelegationManagerRedelegate(tx *data.TxWithSCRS) {
+func (sip *stakeInfoProcessor) processDelegationManagerReDelegate(tx *data.TxWithSCRS) {
 	for _, scr := range tx.SCRS {
 		if scr.Nonce == 0 && scr.Value != "" && scr.Receiver == sip.stakingContractAddress {
 			_, ok := sip.stakingUsers[tx.Sender]
 			if !ok {
+				log.Printf("transaction hash %s", tx.Hash)
 				log.Printf("something is wrong get staking user from map Redelegate ---> this should never happend \n")
-				return
+				goto STEP2
 			}
 
 			sip.stakingUsers[tx.Sender].Add(sip.stakingUsers[tx.Sender], stringToBigInt(scr.Value))
+
+		STEP2:
+			_, ok = sip.delegatorDelegationManager[tx.Sender]
+			if !ok {
+				log.Printf("something is wrong get staking user from map Redelegate delegatorDelegationManager---> this should never happend \n")
+				return
+			}
+
+			sip.delegatorDelegationManager[tx.Sender].Add(sip.delegatorDelegationManager[tx.Sender], stringToBigInt(scr.Value))
+			return
 		}
 	}
 }
@@ -449,9 +546,9 @@ func (sip *stakeInfoProcessor) processUnBond(tx *data.TxWithSCRS) {
 
 func (sip *stakeInfoProcessor) getAllDelegationManagerContracts() ([]string, error) {
 	vmRequest := &data.VmValueRequest{
-		Address:    "erd1qqqqqqqqqqqqqqqpqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqylllslmq6y6",
+		Address:    delegationManager,
 		FuncName:   "getAllContractAddresses",
-		CallerAddr: "erd1qqqqqqqqqqqqqqqpqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqylllslmq6y6",
+		CallerAddr: delegationManager,
 	}
 
 	responseVmValue := &data.ResponseVmValue{}
@@ -470,4 +567,33 @@ func (sip *stakeInfoProcessor) getAllDelegationManagerContracts() ([]string, err
 	}
 
 	return encodedAddrs, nil
+}
+
+func (sip *stakeInfoProcessor) processTxsToDelegationManagerCreator(start, stop int) error {
+	getTxs := getTransactionsToAddr(start, stop, delegationManager)
+
+	err := sip.elasticHandler.DoScrollRequestAllDocuments(getTxs, transactionsIndex, func(responseBytes []byte) error {
+		response := &data.ScrollTransactionsSCRS{}
+		errU := json.Unmarshal(responseBytes, response)
+		if errU != nil {
+			return errU
+		}
+
+		for _, obj := range response.Hits.Hits {
+			if obj.Tx.Status != "success" {
+				continue
+			}
+
+			if strings.HasPrefix(string(obj.Tx.Data), "createNewDelegationContract@") {
+				sip.processDelegationManagerDelegate(&obj.Tx)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

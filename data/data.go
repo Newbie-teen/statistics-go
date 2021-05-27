@@ -2,6 +2,7 @@ package data
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/ElrondNetwork/elastic-indexer-go/data"
 	"github.com/ElrondNetwork/elrond-go/data/vm"
@@ -82,10 +83,13 @@ type StakeInfoEpoch struct {
 	Epoch                uint32 `json:"epoch"`
 	TotalStaked          string `json:"totalStaked"`
 	LegacyDelegationUser int    `json:"legacyDelegationUsers"`
-	LegacyDelegation     string `json:"-"`
+	LegacyDelegation     string `json:"legacyDelegationWaitingList"`
+	TotalDelegatedLegacy string `json:"totalDelegatedLegacy"`
 	StakingUsers         int    `json:"stakingUsers"`
 	Staking              string `json:"staking"`
 	TotalUniqueUsers     int    `json:"totalUniqueUsers"`
+	DelegationUsers      int    `json:"delegationUsers"`
+	Delegation           string `json:"delegation"`
 }
 
 type ScrollTransactionsSCRS struct {
@@ -99,13 +103,15 @@ type ScrollTransactionsSCRS struct {
 }
 
 type TxWithSCRS struct {
-	Nonce    uint64          `json:"nonce"`
-	Receiver string          `json:"receiver"`
-	Sender   string          `json:"sender"`
-	Data     []byte          `json:"data"`
-	Value    string          `json:"value"`
-	Status   string          `json:"status"`
-	SCRS     []data.ScResult `json:"scResults"`
+	Hash      string
+	Timestamp time.Duration   `json:"timestamp"`
+	Nonce     uint64          `json:"nonce"`
+	Receiver  string          `json:"receiver"`
+	Sender    string          `json:"sender"`
+	Data      []byte          `json:"data"`
+	Value     string          `json:"value"`
+	Status    string          `json:"status"`
+	SCRS      []data.ScResult `json:"scResults"`
 }
 
 // VmValuesResponseData follows the format of the data field in an API response for a VM values query

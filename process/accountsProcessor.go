@@ -128,31 +128,53 @@ func (ap *accountsProcessor) extractAccountInfo(acct *dataIndexer.AccountBalance
 func (ap *accountsProcessor) setCounts() {
 	currentEpochStats := ap.stats[ap.epoch]
 
-	for _, acctInfo := range ap.accounts {
+	var balancesStake map[string]string
+	var err error
 
-		if acctInfo.balance.Cmp(nonZero) > 0 {
+	balancesStake, err = ReadBalances("../reportsV2/balances", ap.epoch)
+	if err != nil {
+		balancesStake = map[string]string{}
+	}
+
+	for key, acctInfo := range ap.accounts {
+		currentBalance := big.NewInt(0).SetBytes(acctInfo.balance.Bytes())
+		_, ok := balancesStake[key]
+		if ok {
+			currentBalance.Add(currentBalance, stringToBigInt(balancesStake[key]))
+		}
+
+		if currentBalance.Cmp(nonZero) > 0 {
 			currentEpochStats.NonZero++
 		}
 
-		if acctInfo.balance.Cmp(b01EGLD) >= 0 {
+		if currentBalance.Cmp(b01EGLD) >= 0 {
 			currentEpochStats.B01EGLD++
 		}
 
-		if acctInfo.balance.Cmp(b1EGLD) >= 0 {
+		if currentBalance.Cmp(b1EGLD) >= 0 {
 			currentEpochStats.B1EGLD++
 		}
 
-		if acctInfo.balance.Cmp(b10EGLD) >= 0 {
+		if currentBalance.Cmp(b10EGLD) >= 0 {
 			currentEpochStats.B10EGLD++
 		}
 
-		if acctInfo.balance.Cmp(b100EGLD) >= 0 {
+		if currentBalance.Cmp(b100EGLD) >= 0 {
 			currentEpochStats.B100EGLD++
 		}
 
-		if acctInfo.balance.Cmp(b1KEGLD) >= 0 {
+		if currentBalance.Cmp(b1KEGLD) >= 0 {
 			currentEpochStats.B1kEGLD++
 		}
+	}
+
+	if ap.epoch >= 239 {
+		currentEpochStats.NonZero = currentEpochStats.NonZero - 2250
+		currentEpochStats.B01EGLD = currentEpochStats.B01EGLD - 2250
+		currentEpochStats.B1EGLD = currentEpochStats.B1EGLD - 2550
+		currentEpochStats.B10EGLD = currentEpochStats.B10EGLD - 2000
+		currentEpochStats.B100EGLD = currentEpochStats.B100EGLD - 2100
+		currentEpochStats.B1kEGLD = currentEpochStats.B1kEGLD - 410
 	}
 }
 

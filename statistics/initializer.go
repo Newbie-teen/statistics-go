@@ -67,7 +67,7 @@ func CreateStatsHandler(cfg *config.Config, pathGenesisFiles string) (StatsHandl
 
 func fetchGenesisTime(rClient process.RestClientHandler) (int, error) {
 	genericAPIResponse := &data.GenericAPIResponse{}
-	err := rClient.CallGetRestEndPoint("network/config", genericAPIResponse)
+	err := rClient.CallGetRestEndPoint("/network/config", genericAPIResponse)
 	if err != nil {
 		return 0, err
 	}

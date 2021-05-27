@@ -1,6 +1,8 @@
 package process
 
-import "bytes"
+import (
+	"bytes"
+)
 
 type ElasticHandler interface {
 	DoSearchRequest(query *bytes.Buffer, index string) ([]byte, error)

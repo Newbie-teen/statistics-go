@@ -74,6 +74,10 @@ func ReadGenesisDelegationLegacyUsers(pathToFiles string) (map[string]*big.Int, 
 
 	genesisAccounts := make(map[string]*big.Int)
 	for _, acct := range genesisAccts {
+		if acct.Delegation.Value == "0" {
+			continue
+		}
+
 		genesisAccounts[acct.Adr] = stringToBigInt(acct.Delegation.Value)
 	}
 
